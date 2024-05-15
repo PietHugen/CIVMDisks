@@ -35,6 +35,8 @@ Function Get-APIVersion {
         $APIVersion = (($Versions.SupportedVersions.VersionInfo | `
             Where-Object { $_.deprecated -eq $false }) | `
             Measure-Object -Property Version -Maximum).Maximum.ToString()
+        # replace commas if they're there
+        if ($apiversion -match ',') { $apiversion = $apiversion -replace ',','.'}
         
         # Detect and deal with the differing returns for integer API versions vs. versions ending in a decimal (e.g. 36 vs 36.1):
         If ($APIVersion.Substring($APIVersion.Length-2,1) -ne ".") { $APIVersion += ".0" }
@@ -73,9 +75,18 @@ Function Get-VMDiskXML {
     
     $SessionId = Get-SessionId -VM $VM
     
-    $Headers = @{
+    if ([int]$apiversion.split('.')[0] -le 36) { 
+        # Old style token
+         $Headers = @{
         'Accept'="application/*+xml;version=$($APIVersion)"
         'x-vcloud-authorization'=$SessionId
+        }
+    }
+    else { # new style token
+        $Headers = @{
+        'Accept'="application/*+xml;version=$($APIVersion)"
+        'Authorization'="$SessionId"
+        }
     }
 
     # Get VM details from API
@@ -111,12 +122,22 @@ Function Set-VMDiskXML {
     
     $SessionId = Get-SessionId -VM $VM
     
-    $Headers = @{
+
+    if ([int]$apiversion.split('.')[0] -le 36) { 
+        # Old style token
+         $Headers = @{
         'Accept'="application/*+xml;version=$($APIVersion)"
         'x-vcloud-authorization'=$SessionId
         'Content-Type'='application/vnd.vmware.vcloud.vm+xml'
+        }
     }
-
+    else { # new style token
+        $Headers = @{
+        'Accept'="application/*+xml;version=$($APIVersion)"
+        'Authorization'="$SessionId"
+        'Content-Type'='application/vnd.vmware.vcloud.vm+xml'
+    }
+    }
     $UpdateVmParams = @{
         Uri = "$($VM.Href)/action/reconfigureVm"
         Body = $BodyXML
@@ -152,10 +173,23 @@ Function WaitForTask {
         [Switch]$SkipCertificateCheck
     )
 
+    if ([int]$apiversion.split('.')[0] -le 36) { 
+        # Old style token
+         $Headers = @{
+        'Accept'="application/*+xml;version=$($APIVersion)"
+        'x-vcloud-authorization'=$SessionId
+        }
+    }
+    else { # new style token
+        $Headers = @{
+        'Accept'="application/*+xml;version=$($APIVersion)"
+        'Authorization'="$SessionId"
+        }
+    }
     $TaskParams = @{
         Uri         = $TaskHref
         Method      = 'Get'
-        Headers     = @{'Accept'="application/*+xml;version=$($APIVersion)";'x-vcloud-authorization'=$SessionId}
+        Headers     = $headers
     }
     if ($SkipCertificateCheck) { $TaskParams += @{'SkipCertificateCheck'=$true}}
         
@@ -377,7 +411,6 @@ Function Add-CIVMDisk {
     return $result
 
 } # Add-CIVMDisk Function
-
 
 # Function to remove a hard disk from a VM, deleted hard disks will be permanently removed and the contents lost.
 # VM must be powered-off for disks to be removed
